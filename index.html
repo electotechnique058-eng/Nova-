@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nova - Assistant vocal</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root{--bg:#0f172a;--card:#1e293b;--accent:#38bdf8;--text:#e2e8f0;--muted:#94a3b8}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,sans-serif;background:var(--bg);color:var(--text);padding:16px;max-width:560px;margin:auto}
+  h1{font-size:22px;margin:8px 0 2px}
+  .sub{color:var(--muted);font-size:14px;margin-bottom:16px}
+  #mic{display:block;margin:20px auto;width:130px;height:130px;border-radius:50%;border:none;background:var(--accent);color:#04263a;font-size:44px;cursor:pointer}
+  #mic.on{background:#22c55e;box-shadow:0 0 0 12px rgba(34,197,94,.25)}
+  #status{text-align:center;color:var(--muted);min-height:22px;margin-bottom:12px}
+  .card{background:var(--card);border-radius:12px;padding:12px;margin-bottom:12px}
+  #log{max-height:240px;overflow:auto;font-size:15px}
+  #log p{margin:6px 0}
+  .u{color:var(--accent)} .n{color:#a7f3d0}
+  input{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:var(--text);font-size:15px;margin-top:6px}
+  a.btn{display:inline-block;background:var(--accent);color:#04263a;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:600;margin-top:6px}
+  ul{margin:6px 0;padding-left:20px;color:var(--muted);font-size:14px}
+  small{color:var(--muted)}
+</style>
+</head>
+<body>
+<h1>🎙️ Nova</h1>
+<div class="sub">Dis « Nova » ou « Tech » suivi de ta commande.</div>
+
+<button id="mic" onclick="toggle()">🎤</button>
+<div id="status">Appuie sur le micro pour démarrer</div>
+
+<div class="card" id="linkbox" style="display:none"></div>
+
+<div class="card"><div id="log"></div></div>
+
+<div class="card">
+  <b>Exemples</b>
+  <ul>
+    <li>« Nova, joue de la musique »</li>
+    <li>« Nova, joue Fally Ipupa »</li>
+    <li>« Tech, va sur YouTube »</li>
+    <li>« Nova, quelle température fait-il ? »</li>
+    <li>« Nova, règle une alarme à 5 heures »</li>
+    <li>« Nova, prends-moi un rendez-vous »</li>
+    <li>« Nova, quelle heure est-il ? »</li>
+  </ul>
+</div>
+
+<div class="card">
+  <b>Mon site de rendez-vous</b><br>
+  <small>Colle l'adresse de ton site ici (elle est mémorisée).</small>
+  <input id="site" placeholder="https://monsite.com/rendez-vous" onchange="saveSite()">
+  <small>Tu peux aussi saisir une commande au clavier :</small>
+  <input id="txt" placeholder="ex : Nova météo" onkeydown="if(event.key==='Enter'){handle(this.value);this.value=''}">
+</div>
+
+<script>
+if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+const WAKE = ["nova","tech","tek","teck"];
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec, listening = false;
+const $ = id => document.getElementById(id);
+
+try { $("site").value = localStorage.getItem("site") || ""; } catch(e){}
+function saveSite(){ try{ localStorage.setItem("site", $("site").value.trim()); }catch(e){} say("Adresse enregistrée."); }
+
+function log(who, t){
+  const p = document.createElement("p");
+  p.className = who === "Moi" ? "u" : "n";
+  p.textContent = who + " : " + t;
+  $("log").appendChild(p);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+function say(t){
+  log("Nova", t);
+  try{
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(t);
+    u.lang = "fr-FR";
+    speechSynthesis.speak(u);
+  }catch(e){}
+}
+function openUrl(url, label){
+  const w = window.open(url, "_blank");
+  if(!w){
+    const b = $("linkbox");
+    b.style.display = "block";
+    b.innerHTML = 'Appuie pour ouvrir : <br><a class="btn" href="'+url+'" target="_blank">'+label+'</a>';
+  }
+}
+
+/* ---------- Reconnaissance vocale ---------- */
+function toggle(){
+  if(!SR){ say("Ton navigateur ne gère pas la voix. Ouvre cette page avec Chrome sur Android."); return; }
+  if(listening){ listening = false; rec && rec.stop(); setUI(false); return; }
+  rec = new SR();
+  rec.lang = "fr-FR";
+  rec.continuous = true;
+  rec.interimResults = false;
+  rec.onresult = e => {
+    const t = e.results[e.results.length-1][0].transcript.trim();
+    log("Moi", t);
+    handle(t);
+  };
+  rec.onerror = e => { if(e.error === "not-allowed"){ listening=false; setUI(false); say("Autorise le micro dans les paramètres du navigateur."); } };
+  rec.onend = () => { if(listening){ try{ rec.start(); }catch(e){} } };
+  listening = true;
+  rec.start();
+  setUI(true);
+  say("Je t'écoute.");
+}
+function setUI(on){
+  $("mic").classList.toggle("on", on);
+  $("status").textContent = on ? "Écoute en cours… dis « Nova » + commande" : "Micro arrêté";
+}
+
+/* ---------- Compréhension ---------- */
+const NUM = {zéro:0,zero:0,un:1,une:1,deux:2,trois:3,quatre:4,cinq:5,six:6,sept:7,huit:8,neuf:9,dix:10,onze:11,douze:12,treize:13,quatorze:14,quinze:15,seize:16,"vingt":20,"trente":30,"quarante":40,"cinquante":50};
+function words2digits(s){
+  return s.replace(/\b(zéro|zero|une|un|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze|treize|quatorze|quinze|seize)\b/g, m => NUM[m]);
+}
+function handle(raw){
+  let t = raw.toLowerCase().replace(/[,.!?]/g," ").replace(/\s+/g," ").trim();
+  const w = WAKE.find(k => t.split(" ").includes(k));
+  if(!w){ if(!listening) return; return; }          // ignoré sans mot d'appel
+  t = t.slice(t.indexOf(w)+w.length).trim();
+  if(!t){ say("Oui, je t'écoute."); return; }
+  const d = words2digits(t);
+
+  if(/alarme|réveil|reveil/.test(t)){
+    const m = d.match(/(\d{1,2})\s*(?:h|heures?|:)?\s*(\d{1,2})?/);
+    if(!m){ say("À quelle heure veux-tu l'alarme ?"); return; }
+    let h = parseInt(m[1]), mn = m[2] ? parseInt(m[2]) : 0;
+    if(/demie|et demi/.test(t)) mn = 30;
+    if(/quart/.test(t)) mn = 15;
+    if(h>23||mn>59){ say("Je n'ai pas compris l'heure."); return; }
+    say("Alarme réglée à " + h + " heure" + (h>1?"s":"") + (mn? " "+mn : "") + ".");
+    const intent = "intent:#Intent;action=android.intent.action.SET_ALARM;i.android.intent.extra.alarm.HOUR="+h+";i.android.intent.extra.alarm.MINUTES="+mn+";S.android.intent.extra.alarm.MESSAGE=Nova;B.android.intent.extra.alarm.SKIP_UI=true;end";
+    setTimeout(()=>{ location.href = intent; }, 1200);
+    return;
+  }
+  if(/météo|meteo|température|temperature|temps fait|chaud|froid/.test(t)){ weather(); return; }
+  if(/rendez-vous|rendez vous|rdv/.test(t)){
+    const s = $("site").value.trim();
+    if(!s){ say("Colle d'abord l'adresse de ton site dans la case prévue."); return; }
+    say("J'ouvre ton site de rendez-vous.");
+    openUrl(s.startsWith("http")?s:"https://"+s, "Ouvrir mon site");
+    return;
+  }
+  if(/heure est|quelle heure/.test(t)){
+    say("Il est " + new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}) + ".");
+    return;
+  }
+  if(/musique|joue|jouer|chanson|écouter|ecouter/.test(t)){
+    let q = t.replace(/(joue-moi|joue moi|joue|jouer|mets|mets-moi|écouter|ecouter|de la|la musique|musique|chanson|une|moi)/g," ").replace(/\s+/g," ").trim();
+    if(!q) q = "musique";
+    say("Je lance " + q + " sur YouTube.");
+    openUrl("https://www.youtube.com/results?search_query="+encodeURIComponent(q), "Ouvrir YouTube");
+    return;
+  }
+  if(/youtube/.test(t)){
+    say("J'ouvre YouTube.");
+    openUrl("https://m.youtube.com", "Ouvrir YouTube");
+    return;
+  }
+  say("Je n'ai pas compris. Essaie : musique, météo, alarme, YouTube ou rendez-vous.");
+}
+
+/* ---------- Météo (Open-Meteo, sans clé) ---------- */
+function weather(){
+  const go = (lat, lon, lieu) => {
+    fetch("https://api.open-meteo.com/v1/forecast?latitude="+lat+"&longitude="+lon+"&current=temperature_2m,precipitation,weather_code&timezone=auto")
+      .then(r=>r.json()).then(j=>{
+        const c = j.current, code = c.weather_code;
+        let ciel = code===0?"ciel dégagé": code<4?"partiellement nuageux": code<50?"brumeux": code<70?"pluvieux": code<80?"neigeux": "orageux";
+        say("À "+lieu+", il fait "+Math.round(c.temperature_2m)+" degrés, temps "+ciel+".");
+      }).catch(()=>say("Impossible d'obtenir la météo. Vérifie ta connexion."));
+  };
+  if(navigator.geolocation){
+    navigator.geolocation.getCurrentPosition(
+      p => go(p.coords.latitude, p.coords.longitude, "ta position"),
+      () => go(6.37, 2.43, "Cotonou"), {timeout:6000});
+  } else go(6.37, 2.43, "Cotonou");
+}
+</script>
+</body>
+</html>
